@@ -29,7 +29,8 @@ import {
     InvalidHeaderFlag,
     NativeTokenMismatch,
     BadMaxTimeVariation,
-    Deprecated
+    Deprecated,
+    NoCommitment
 } from "../libraries/Error.sol";
 import "./IBridge.sol";
 import "./IInboxBase.sol";
@@ -39,6 +40,7 @@ import "./Messages.sol";
 import "../precompiles/ArbGasInfo.sol";
 import "../precompiles/ArbSys.sol";
 import "../libraries/IReader4844.sol";
+import "./IDomicon.sol";
 
 import {L1MessageType_batchPostingReport} from "../libraries/MessageTypes.sol";
 import "../libraries/DelegateCallAware.sol";
@@ -58,6 +60,8 @@ contract SequencerInbox is DelegateCallAware, GasRefundEnabled, ISequencerInbox 
     uint256 public totalDelayedMessagesRead;
 
     IBridge public bridge;
+
+    IDomicon public domicon;
 
     /// @inheritdoc ISequencerInbox
     uint256 public constant HEADER_LENGTH = 40;
@@ -128,7 +132,8 @@ contract SequencerInbox is DelegateCallAware, GasRefundEnabled, ISequencerInbox 
     constructor(
         uint256 _maxDataSize,
         IReader4844 reader4844_,
-        bool _isUsingFeeToken
+        bool _isUsingFeeToken,
+        address _domiconAddr
     ) {
         maxDataSize = _maxDataSize;
         if (hostChainIsArbitrum) {
@@ -138,6 +143,7 @@ contract SequencerInbox is DelegateCallAware, GasRefundEnabled, ISequencerInbox 
         }
         reader4844 = reader4844_;
         isUsingFeeToken = _isUsingFeeToken;
+        domicon = IDomicon(_domiconAddr);
     }
 
     function _chainIdChanged() internal view returns (bool) {
@@ -592,10 +598,21 @@ contract SequencerInbox is DelegateCallAware, GasRefundEnabled, ISequencerInbox 
             // das batches expect to have the type byte set, followed by the keyset (so they should have at least 33 bytes)
             // if invalid data is supplied here the state transition function will process it as an empty block
             // however we can provide a nice additional check here for the batch poster
-            if (data[0] & DAS_MESSAGE_HEADER_FLAG != 0 && data.length >= 33) {
+            if (data[0] & DAS_MESSAGE_HEADER_FLAG != 0 && data.length >= 166) {
                 // we skip the first byte, then read the next 32 bytes for the keyset
-                bytes32 dasKeysetHash = bytes32(data[1:33]);
-                if (!dasKeySetInfo[dasKeysetHash].isValidKeyset) revert NoSuchKeyset(dasKeysetHash);
+                //bytes32 dasKeysetHash = bytes32(data[1:33]);
+                //if (!dasKeySetInfo[dasKeysetHash].isValidKeyset) revert NoSuchKeyset(dasKeysetHash)
+
+                // 1. parse out data commitment
+                //bytes48 curCommitment = bytes48(data[64:112]);
+                // 2. parse out userAddr
+                address userAddr = address(bytes20(data[113:133]));
+                // 3. parse out userIndex
+                uint256 userIndex = uint256(bytes32(data[134:166]));
+                // 4. scan commitment in domicon with userAddr and userIndex
+                (uint256 index, uint256 length, address retUserAddr, address broadcaster, bytes memory sign, bytes memory commitment) = domicon.submits(userAddr, userIndex);
+                // 5. if current commitment is not exist in domicon, revert
+                if (commitment.length == 0) revert NoCommitment(userAddr, userIndex);
             }
         }
         return (keccak256(bytes.concat(header, data)), timeBounds);
