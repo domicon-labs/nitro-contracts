@@ -610,7 +610,7 @@ contract SequencerInbox is DelegateCallAware, GasRefundEnabled, ISequencerInbox 
                 // 3. parse out userIndex
                 uint256 userIndex = uint256(bytes32(data[134:166]));
                 // 4. scan commitment in domicon with userAddr and userIndex
-                (uint256 index, uint256 length, address retUserAddr, address broadcaster, bytes memory sign, bytes memory commitment) = domicon.submits(userAddr, userIndex);
+                bytes memory commitment = domicon.submits(userAddr, userIndex);
                 // 5. if current commitment is not exist in domicon, revert
                 if (commitment.length == 0) revert NoCommitment(userAddr, userIndex);
             }

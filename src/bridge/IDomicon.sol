@@ -5,5 +5,5 @@ interface IDomicon {
     function submits(
         address user,
         uint256 index
-    )external view returns (uint256, uint256, address, address, bytes memory, bytes memory);
+    )external view returns (bytes memory);
 }
